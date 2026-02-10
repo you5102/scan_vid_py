@@ -1,1 +1,80 @@
-123
+name: VID Scanner
+
+on:
+  workflow_dispatch: # 手动触发：在 GitHub Actions 页面点击 "Run workflow"
+    inputs:
+      reason:
+        description: '触发原因 (可选)'
+        required: false
+        default: 'Manual triggering'
+  
+  repository_dispatch: # API 触发：通过 POST 请求到 GitHub API 触发
+    types: [run_scanner_api]
+
+  # 如果你还需要保留定时任务，可以取消注释下面几行
+  # schedule:
+  #   - cron: '0 * * * *' 
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false # 即使其中一个矩阵报错，其他任务也继续运行
+      matrix:
+        index: ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10",
+                "11", "12", "13", "14", "15", "16", "17", "18", "19", "20"]
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          pip install playwright playwright-stealth requests
+          playwright install chromium
+
+      - name: Run Scanner
+        env:
+          API_KEY: ${{ secrets.API_KEY }}
+          TARGET_PATTERN: ${{ secrets.TARGET_PATTERN }}
+          WORKER_VID_URL: ${{ vars.WORKER_VID_URL }}
+          WORKER_TOKEN_URL: ${{ vars.WORKER_TOKEN_URL }}
+          RUN_DURATION_MINUTES: ${{ vars.RUN_DURATION_MINUTES }}
+          MAX_CONSECUTIVE_ERRORS: ${{ vars.MAX_CONSECUTIVE_ERRORS }}
+          MAX_RETRIES: ${{ vars.MAX_RETRIES }}
+          NUM_PARTS: ${{ vars.NUM_PARTS }}
+          COPIES: ${{ vars.COPIES }}
+          SOCKSPROXY: ${{ secrets.SOCKSPROXY }}
+        run: |
+          # 动态复制文件以匹配你脚本中的正则解析索引逻辑
+          cp scan_vid_a.py scan_vid_a_${{ matrix.index }}.py
+          python -u scan_vid_a_${{ matrix.index }}.py
+
+  report:
+    runs-on: ubuntu-latest
+    needs: scan              # 必须等 20 个 scan 分片全跑完
+    if: always()             # 即使扫码任务中有报错，最后也发个汇总
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: pip install requests
+
+      - name: Run Report
+        env:
+          API_KEY: ${{ secrets.API_KEY }}
+          WORKER_TOKEN_URL: ${{ vars.WORKER_TOKEN_URL }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: python -u send_tg_report.py
